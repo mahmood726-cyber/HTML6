@@ -403,6 +403,24 @@ const debounce = (fn, ms) => {
 };
 
 /**
+ * Escapes a string for safe CSV output (prevents CSV injection)
+ * @param {string} str - The string to escape
+ * @returns {string} - CSV-safe string
+ */
+const escapeCSV = (str) => {
+    if (str === null || str === undefined) return '';
+    const s = String(str);
+    // Prefix with single quote if starts with formula characters
+    const needsPrefix = /^[=+\-@\t\r]/.test(s);
+    // Escape quotes and wrap in quotes if contains special chars
+    const escaped = s.replace(/"/g, '""');
+    if (needsPrefix || /[",\n\r]/.test(s)) {
+        return `"${needsPrefix ? "'" : ''}${escaped}"`;
+    }
+    return escaped;
+};
+
+/**
  * Logs errors to console with context (replaces silent catch blocks)
  * @param {string} context - Description of where the error occurred
  * @param {Error} error - The error object
@@ -2427,7 +2445,10 @@ const app = {
         const r = this.results, ref = this.config.reference || r.treatments[0];
         let csv = 'comparison,treatment1,treatment2,TE,seTE,lower,upper,z,pval,sig\n';
         r.pairwise.filter(p => p.t2 === ref).forEach(p => {
-            csv += `"${p.t1} vs ${p.t2}","${p.t1}","${p.t2}",${p.es.toFixed(4)},${p.se.toFixed(4)},${p.lo.toFixed(4)},${p.hi.toFixed(4)},${p.z.toFixed(4)},${p.pv.toFixed(6)},${p.sig ? 'yes' : 'no'}\n`;
+            const comp = escapeCSV(`${p.t1} vs ${p.t2}`);
+            const t1 = escapeCSV(p.t1);
+            const t2 = escapeCSV(p.t2);
+            csv += `${comp},${t1},${t2},${p.es.toFixed(4)},${p.se.toFixed(4)},${p.lo.toFixed(4)},${p.hi.toFixed(4)},${p.z.toFixed(4)},${p.pv.toFixed(6)},${p.sig ? 'yes' : 'no'}\n`;
         });
         csv += `\n# tau2,${r.tau2.toFixed(6)}\n# I2,${r.I2.toFixed(2)}\n# Q,${r.Q.toFixed(4)}\n# df,${r.df}\n`;
         const blob = new Blob([csv], { type: 'text/csv' });
@@ -2580,7 +2601,7 @@ const app = {
     updateReferenceSelect(ts) {
         const sel = document.getElementById('sel-ref');
         const tlist = ts || this.getTreatments();
-        sel.innerHTML = tlist.map(t => `<option value="${t}">${t}</option>`).join('');
+        sel.innerHTML = tlist.map(t => `<option value="${sanitize(t)}">${sanitize(t)}</option>`).join('');
         if (tlist.includes(this.config.reference)) sel.value = this.config.reference;
         else if (tlist.length) { this.config.reference = tlist[0]; sel.value = tlist[0]; }
     },
@@ -2694,18 +2715,82 @@ const app = {
         document.getElementById('s-studies').textContent = r.nStudies;
         document.getElementById('s-comparisons').textContent = r.directComparisons.length;
         document.getElementById('s-density').textContent = (r.networkDiag.density * 100).toFixed(0) + '%';
-        const nLoops = r.contrasts.length - r.treatments.length + 1, isOk = nLoops > 0;
-        document.getElementById('network-info').innerHTML = `<div class="alert ${isOk ? 'alert-success' : 'alert-warning'}"><strong>Geometry:</strong> ${r.treatments.length} nodes, ${r.directComparisons.length} edges, ${nLoops} loops. ${!isOk ? '<br>⚠️ Star network.' : '<br>✓ Closed loops.'}</div>`;
-        document.getElementById('network-diagnostics').innerHTML = r.networkDiag.articulationPoints.length > 0 ? `<div class="alert alert-warning"><strong>⚠️ Critical:</strong> Removing ${r.networkDiag.articulationPoints.join(' or ')} disconnects network.</div>` : `<div class="alert alert-success"><strong>✓ Robust:</strong> No single removal disconnects network.</div>`;
-        const n = r.treatments.length, angle = (2 * Math.PI) / n;
+
+        // Network geometry info
+        const nLoops = r.contrasts.length - r.treatments.length + 1;
+        const isOk = nLoops > 0;
+        const geometryClass = isOk ? 'alert-success' : 'alert-warning';
+        const geometryStatus = isOk ? '<br>✓ Closed loops.' : '<br>⚠️ Star network.';
+        document.getElementById('network-info').innerHTML =
+            `<div class="alert ${geometryClass}">` +
+            `<strong>Geometry:</strong> ${r.treatments.length} nodes, ` +
+            `${r.directComparisons.length} edges, ${nLoops} loops.${geometryStatus}</div>`;
+
+        // Articulation points diagnostics
+        const artPoints = r.networkDiag.articulationPoints;
+        if (artPoints.length > 0) {
+            const sanitizedPoints = artPoints.map(p => sanitize(p)).join(' or ');
+            document.getElementById('network-diagnostics').innerHTML =
+                `<div class="alert alert-warning"><strong>⚠️ Critical:</strong> ` +
+                `Removing ${sanitizedPoints} disconnects network.</div>`;
+        } else {
+            document.getElementById('network-diagnostics').innerHTML =
+                `<div class="alert alert-success"><strong>✓ Robust:</strong> ` +
+                `No single removal disconnects network.</div>`;
+        }
+
+        // Build network graph
+        const n = r.treatments.length;
+        const angle = (2 * Math.PI) / n;
         const nodeX = r.treatments.map((_, i) => Math.cos(angle * i - Math.PI / 2));
         const nodeY = r.treatments.map((_, i) => Math.sin(angle * i - Math.PI / 2));
-        const idx = {}; r.treatments.forEach((t, i) => idx[t] = i);
+        const idx = {};
+        r.treatments.forEach((t, i) => idx[t] = i);
+
+        // Edge traces
         const traces = [];
-        r.directComparisons.forEach(comp => { const i1 = idx[comp.t1], i2 = idx[comp.t2], key = [comp.t1, comp.t2].sort().join('|'), weight = r.edgeWeights[key] || 1; traces.push({ x: [nodeX[i1], nodeX[i2]], y: [nodeY[i1], nodeY[i2]], mode: 'lines', line: { color: 'rgba(59,130,246,0.6)', width: Math.min(2 + weight * 2, 12) }, hoverinfo: 'text', text: `${comp.t1} vs ${comp.t2}: ${weight} studies`, showlegend: false }); });
-        traces.push({ x: nodeX, y: nodeY, mode: 'markers+text', marker: { size: 36, color: r.treatments.map(t => r.networkDiag.articulationPoints.includes(t) ? '#f59e0b' : '#111820'), line: { color: '#3b82f6', width: 2 } }, text: r.treatments, textposition: 'middle center', textfont: { color: '#f0f4f8', size: 9 }, hoverinfo: 'text', hovertext: r.treatments.map((t, i) => `${t}\nP-Score: ${r.pScores[i].toFixed(3)}`), showlegend: false });
+        r.directComparisons.forEach(comp => {
+            const i1 = idx[comp.t1];
+            const i2 = idx[comp.t2];
+            const key = [comp.t1, comp.t2].sort().join('|');
+            const weight = r.edgeWeights[key] || 1;
+            traces.push({
+                x: [nodeX[i1], nodeX[i2]],
+                y: [nodeY[i1], nodeY[i2]],
+                mode: 'lines',
+                line: { color: 'rgba(59,130,246,0.6)', width: Math.min(2 + weight * 2, 12) },
+                hoverinfo: 'text',
+                text: `${comp.t1} vs ${comp.t2}: ${weight} studies`,
+                showlegend: false
+            });
+        });
+
+        // Node trace
+        traces.push({
+            x: nodeX,
+            y: nodeY,
+            mode: 'markers+text',
+            marker: {
+                size: 36,
+                color: r.treatments.map(t => artPoints.includes(t) ? '#f59e0b' : '#111820'),
+                line: { color: '#3b82f6', width: 2 }
+            },
+            text: r.treatments,
+            textposition: 'middle center',
+            textfont: { color: '#f0f4f8', size: 9 },
+            hoverinfo: 'text',
+            hovertext: r.treatments.map((t, i) => `${t}\nP-Score: ${r.pScores[i].toFixed(FORMAT.PSCORE)}`),
+            showlegend: false
+        });
+
         Plotly.purge('plt-network');
-        Plotly.newPlot('plt-network', traces, { paper_bgcolor: '#0a0f14', plot_bgcolor: '#0a0f14', margin: { l: 20, r: 20, t: 20, b: 20 }, xaxis: { visible: false, range: [-1.6, 1.6] }, yaxis: { visible: false, range: [-1.6, 1.6], scaleanchor: 'x' } }, { displayModeBar: false, responsive: true });
+        Plotly.newPlot('plt-network', traces, {
+            paper_bgcolor: '#0a0f14',
+            plot_bgcolor: '#0a0f14',
+            margin: { l: 20, r: 20, t: 20, b: 20 },
+            xaxis: { visible: false, range: [-1.6, 1.6] },
+            yaxis: { visible: false, range: [-1.6, 1.6], scaleanchor: 'x' }
+        }, { displayModeBar: false, responsive: true });
     },
     
     drawResults() {
@@ -2899,51 +2984,284 @@ const app = {
     },
     
     drawForest() {
-        const r = this.results, metric = this.config.metric, isRatio = ['OR', 'RR'].includes(metric), ref = this.config.reference || r.treatments[0], nullVal = isRatio ? 1 : 0, showPI = document.getElementById('chk-pi').checked;
+        const r = this.results;
+        const metric = this.config.metric;
+        const isRatio = ['OR', 'RR'].includes(metric);
+        const ref = this.config.reference || r.treatments[0];
+        const nullVal = isRatio ? 1 : 0;
+        const showPI = document.getElementById('chk-pi').checked;
+
         const vs = r.pairwise.filter(p => p.t2 === ref && p.t1 !== ref).sort((a, b) => a.d - b.d);
-        const traces = [{ x: [nullVal, nullVal], y: [-0.5, vs.length - 0.5], mode: 'lines', line: { color: '#1e2836', dash: 'dash' }, showlegend: false }];
-        if (showPI) { traces.push({ x: vs.map(p => p.predLo), y: vs.map((_, i) => i), mode: 'lines', line: { color: 'rgba(139,92,246,0.3)', width: 0 }, showlegend: false, hoverinfo: 'skip' }); traces.push({ x: vs.map(p => p.predHi), y: vs.map((_, i) => i), mode: 'lines', line: { color: 'rgba(139,92,246,0.3)', width: 0 }, fill: 'tonextx', fillcolor: 'rgba(139,92,246,0.15)', showlegend: false, hoverinfo: 'skip' }); }
-        traces.push({ x: vs.map(p => p.d), y: vs.map((_, i) => i), error_x: { type: 'data', symmetric: false, array: vs.map(p => p.dH - p.d), arrayminus: vs.map(p => p.d - p.dL), color: '#3b82f6', thickness: 2, width: 0 }, mode: 'markers', marker: { symbol: 'diamond', size: 12, color: vs.map(p => p.sig ? (p.d < nullVal ? '#10b981' : '#ef4444') : '#64748b') }, text: vs.map(p => `${p.t1}: ${p.d.toFixed(2)} [${p.dL.toFixed(2)}, ${p.dH.toFixed(2)}]${showPI ? `\nPI: [${p.predLo.toFixed(2)}, ${p.predHi.toFixed(2)}]` : ''}`), hoverinfo: 'text', showlegend: false });
+
+        // Reference line trace
+        const traces = [{
+            x: [nullVal, nullVal],
+            y: [-0.5, vs.length - 0.5],
+            mode: 'lines',
+            line: { color: '#1e2836', dash: 'dash' },
+            showlegend: false
+        }];
+
+        // Prediction interval shading (if enabled)
+        if (showPI) {
+            traces.push({
+                x: vs.map(p => p.predLo),
+                y: vs.map((_, i) => i),
+                mode: 'lines',
+                line: { color: 'rgba(139,92,246,0.3)', width: 0 },
+                showlegend: false,
+                hoverinfo: 'skip'
+            });
+            traces.push({
+                x: vs.map(p => p.predHi),
+                y: vs.map((_, i) => i),
+                mode: 'lines',
+                line: { color: 'rgba(139,92,246,0.3)', width: 0 },
+                fill: 'tonextx',
+                fillcolor: 'rgba(139,92,246,0.15)',
+                showlegend: false,
+                hoverinfo: 'skip'
+            });
+        }
+
+        // Main effect markers with error bars
+        traces.push({
+            x: vs.map(p => p.d),
+            y: vs.map((_, i) => i),
+            error_x: {
+                type: 'data',
+                symmetric: false,
+                array: vs.map(p => p.dH - p.d),
+                arrayminus: vs.map(p => p.d - p.dL),
+                color: '#3b82f6',
+                thickness: 2,
+                width: 0
+            },
+            mode: 'markers',
+            marker: {
+                symbol: 'diamond',
+                size: 12,
+                color: vs.map(p => p.sig ? (p.d < nullVal ? '#10b981' : '#ef4444') : '#64748b')
+            },
+            text: vs.map(p => {
+                const base = `${p.t1}: ${p.d.toFixed(FORMAT.EFFECT)} [${p.dL.toFixed(FORMAT.CI)}, ${p.dH.toFixed(FORMAT.CI)}]`;
+                return showPI ? `${base}\nPI: [${p.predLo.toFixed(FORMAT.CI)}, ${p.predHi.toFixed(FORMAT.CI)}]` : base;
+            }),
+            hoverinfo: 'text',
+            showlegend: false
+        });
+
         Plotly.purge('plt-forest');
-        Plotly.newPlot('plt-forest', traces, { paper_bgcolor: '#0a0f14', plot_bgcolor: '#0a0f14', margin: { l: 140, r: 30, t: 30, b: 50 }, xaxis: { title: metric + (showPI ? ' (shaded=PI)' : ''), type: isRatio ? 'log' : 'linear', color: '#64748b', gridcolor: '#1e2836' }, yaxis: { tickmode: 'array', tickvals: vs.map((_, i) => i), ticktext: vs.map(p => p.t1), color: '#f0f4f8' }, font: { family: 'Inter', color: '#f0f4f8' } }, { displayModeBar: false, responsive: true });
+        Plotly.newPlot('plt-forest', traces, {
+            paper_bgcolor: '#0a0f14',
+            plot_bgcolor: '#0a0f14',
+            margin: { l: 140, r: 30, t: 30, b: 50 },
+            xaxis: {
+                title: metric + (showPI ? ' (shaded=PI)' : ''),
+                type: isRatio ? 'log' : 'linear',
+                color: '#64748b',
+                gridcolor: '#1e2836'
+            },
+            yaxis: {
+                tickmode: 'array',
+                tickvals: vs.map((_, i) => i),
+                ticktext: vs.map(p => p.t1),
+                color: '#f0f4f8'
+            },
+            font: { family: 'Inter', color: '#f0f4f8' }
+        }, { displayModeBar: false, responsive: true });
     },
     
     drawConsistency() {
-        const r = this.results, cons = r.consistency, metric = this.config.metric, isRatio = ['OR', 'RR'].includes(metric);
-        if (!cons) { document.getElementById('q-total').textContent = '-'; document.getElementById('q-within').textContent = '-'; document.getElementById('q-between').textContent = '-'; document.getElementById('q-interpretation').innerHTML = '<div class="empty-state">Insufficient data.</div>'; document.getElementById('node-split-results').innerHTML = ''; return; }
-        document.getElementById('q-total').textContent = cons.Qtotal.toFixed(2);
-        document.getElementById('q-within').textContent = cons.Qwithin.toFixed(2);
-        document.getElementById('q-between').textContent = cons.Qbetween.toFixed(2);
-        let interpHtml = `<div class="alert ${cons.inconsistent ? 'alert-warning' : 'alert-success'}"><strong>Global:</strong> Q<sub>between</sub>=${cons.Qbetween.toFixed(2)}, df=${cons.dfBetween}, p=${cons.pBetween < 0.001 ? '<0.001' : cons.pBetween.toFixed(3)}<br>${cons.inconsistent ? '⚠️ Inconsistency (p<0.10).' : '✓ No inconsistency.'}<br><small class="text-muted">Designs: ${cons.nDesigns}</small></div>`;
-        if (cons.dfWarning) interpHtml += `<div class="alert alert-warning mt-2"><strong>⚠️</strong> ${cons.warningMessage}</div>`;
+        const r = this.results;
+        const cons = r.consistency;
+        const metric = this.config.metric;
+        const isRatio = ['OR', 'RR'].includes(metric);
+
+        // Handle missing consistency data
+        if (!cons) {
+            document.getElementById('q-total').textContent = '-';
+            document.getElementById('q-within').textContent = '-';
+            document.getElementById('q-between').textContent = '-';
+            document.getElementById('q-interpretation').innerHTML =
+                '<div class="empty-state">Insufficient data.</div>';
+            document.getElementById('node-split-results').innerHTML = '';
+            return;
+        }
+
+        // Q statistics
+        document.getElementById('q-total').textContent = cons.Qtotal.toFixed(FORMAT.Q_STAT);
+        document.getElementById('q-within').textContent = cons.Qwithin.toFixed(FORMAT.Q_STAT);
+        document.getElementById('q-between').textContent = cons.Qbetween.toFixed(FORMAT.Q_STAT);
+
+        // Interpretation
+        const alertClass = cons.inconsistent ? 'alert-warning' : 'alert-success';
+        const pDisplay = cons.pBetween < 0.001 ? '<0.001' : cons.pBetween.toFixed(FORMAT.PVALUE);
+        const statusText = cons.inconsistent ? '⚠️ Inconsistency (p<0.10).' : '✓ No inconsistency.';
+
+        let interpHtml = `<div class="alert ${alertClass}">` +
+            `<strong>Global:</strong> Q<sub>between</sub>=${cons.Qbetween.toFixed(FORMAT.Q_STAT)}, ` +
+            `df=${cons.dfBetween}, p=${pDisplay}<br>${statusText}` +
+            `<br><small class="text-muted">Designs: ${cons.nDesigns}</small></div>`;
+
+        if (cons.dfWarning) {
+            interpHtml += `<div class="alert alert-warning mt-2">` +
+                `<strong>⚠️</strong> ${sanitize(cons.warningMessage)}</div>`;
+        }
         document.getElementById('q-interpretation').innerHTML = interpHtml;
+
+        // Node-split results
         const container = document.getElementById('node-split-results');
-        if (!r.nodeSplits.length) { container.innerHTML = '<div class="empty-state">No comparisons with both direct and indirect evidence.</div>'; return; }
-        container.innerHTML = r.nodeSplits.map(ns => { const directVal = isRatio ? Math.exp(ns.direct.es).toFixed(2) : ns.direct.es.toFixed(2), indirectVal = isRatio ? Math.exp(ns.indirect.es).toFixed(2) : ns.indirect.es.toFixed(2); return `<div class="comparison-item ${ns.inconsistent ? 'status-bad' : 'status-ok'}"><div class="comparison-header"><span class="comparison-title">${ns.t1} vs ${ns.t2}</span><span class="comparison-badge ${ns.inconsistent ? 'badge-bad' : 'badge-ok'}">${ns.inconsistent ? 'Inconsistent' : 'Consistent'}</span></div><div class="comparison-grid"><div><div class="comparison-label">Direct (n=${ns.direct.n})</div><div class="comparison-value">${directVal}</div></div><div><div class="comparison-label">Indirect</div><div class="comparison-value">${indirectVal}</div></div><div><div class="comparison-label">P-value</div><div class="comparison-value ${ns.inconsistent ? 'text-error' : ''}">${ns.pv < 0.001 ? '<.001' : ns.pv.toFixed(3)}</div></div></div></div>`; }).join('');
+        if (!r.nodeSplits.length) {
+            container.innerHTML = '<div class="empty-state">No comparisons with both direct and indirect evidence.</div>';
+            return;
+        }
+
+        container.innerHTML = r.nodeSplits.map(ns => {
+            const directVal = isRatio
+                ? Math.exp(ns.direct.es).toFixed(FORMAT.EFFECT)
+                : ns.direct.es.toFixed(FORMAT.EFFECT);
+            const indirectVal = isRatio
+                ? Math.exp(ns.indirect.es).toFixed(FORMAT.EFFECT)
+                : ns.indirect.es.toFixed(FORMAT.EFFECT);
+            const pVal = ns.pv < 0.001 ? '<.001' : ns.pv.toFixed(FORMAT.PVALUE);
+            const statusClass = ns.inconsistent ? 'status-bad' : 'status-ok';
+            const badgeClass = ns.inconsistent ? 'badge-bad' : 'badge-ok';
+            const badgeText = ns.inconsistent ? 'Inconsistent' : 'Consistent';
+
+            return `<div class="comparison-item ${statusClass}">` +
+                `<div class="comparison-header">` +
+                `<span class="comparison-title">${sanitize(ns.t1)} vs ${sanitize(ns.t2)}</span>` +
+                `<span class="comparison-badge ${badgeClass}">${badgeText}</span>` +
+                `</div>` +
+                `<div class="comparison-grid">` +
+                `<div><div class="comparison-label">Direct (n=${ns.direct.n})</div>` +
+                `<div class="comparison-value">${directVal}</div></div>` +
+                `<div><div class="comparison-label">Indirect</div>` +
+                `<div class="comparison-value">${indirectVal}</div></div>` +
+                `<div><div class="comparison-label">P-value</div>` +
+                `<div class="comparison-value ${ns.inconsistent ? 'text-error' : ''}">${pVal}</div></div>` +
+                `</div></div>`;
+        }).join('');
     },
     
     drawROB() {
-        const r = this.results, metric = this.config.metric, isRatio = ['OR', 'RR'].includes(metric), ref = this.config.reference || r.treatments[0];
+        const r = this.results;
+        const metric = this.config.metric;
+        const isRatio = ['OR', 'RR'].includes(metric);
+        const ref = this.config.reference || r.treatments[0];
+        const nullVal = isRatio ? 1 : 0;
+
+        // ROB counts
         document.getElementById('rob-low-count').textContent = r.robCounts.low;
         document.getElementById('rob-some-count').textContent = r.robCounts.some;
         document.getElementById('rob-high-count').textContent = r.robCounts.high;
+
+        // Helper to build ROB table rows
+        const buildROBRow = (p) => {
+            const colorClass = p.sig ? (p.d < nullVal ? 'text-success' : 'text-error') : '';
+            return `<tr>` +
+                `<td class="fw-500">${sanitize(p.t1)}</td>` +
+                `<td class="mono ${colorClass}">${p.d.toFixed(FORMAT.EFFECT)}</td>` +
+                `<td class="mono text-muted">[${p.dL.toFixed(FORMAT.CI)}, ${p.dH.toFixed(FORMAT.CI)}]</td>` +
+                `</tr>`;
+        };
+
+        // Main analysis table
         const mainVs = r.pairwise.filter(p => p.t2 === ref && p.t1 !== ref).sort((a, b) => a.d - b.d);
-        let mainHtml = '<table class="rank-table" style="font-size:0.8125rem;"><thead><tr><th>Treatment</th><th>' + metric + '</th><th>95% CI</th></tr></thead><tbody>';
-        mainVs.forEach(p => { const nullVal = isRatio ? 1 : 0, colorClass = p.sig ? (p.d < nullVal ? 'text-success' : 'text-error') : ''; mainHtml += `<tr><td class="fw-500">${p.t1}</td><td class="mono ${colorClass}">${p.d.toFixed(2)}</td><td class="mono text-muted">[${p.dL.toFixed(2)}, ${p.dH.toFixed(2)}]</td></tr>`; });
+        let mainHtml = '<table class="rank-table" style="font-size:0.8125rem;">' +
+            `<thead><tr><th>Treatment</th><th>${sanitize(metric)}</th><th>95% CI</th></tr></thead><tbody>`;
+        mainVs.forEach(p => { mainHtml += buildROBRow(p); });
         mainHtml += '</tbody></table>';
         document.getElementById('rob-all-studies').innerHTML = mainHtml;
+
+        // Sensitivity analysis (low ROB only)
         if (r.robSensitivity) {
             const sensVs = r.robSensitivity.pairwise.filter(p => p.t2 === ref && p.t1 !== ref).sort((a, b) => a.d - b.d);
-            let sensHtml = '<table class="rank-table" style="font-size:0.8125rem;"><thead><tr><th>Treatment</th><th>' + metric + '</th><th>95% CI</th></tr></thead><tbody>';
-            sensVs.forEach(p => { const nullVal = isRatio ? 1 : 0, colorClass = p.sig ? (p.d < nullVal ? 'text-success' : 'text-error') : ''; sensHtml += `<tr><td class="fw-500">${p.t1}</td><td class="mono ${colorClass}">${p.d.toFixed(2)}</td><td class="mono text-muted">[${p.dL.toFixed(2)}, ${p.dH.toFixed(2)}]</td></tr>`; });
+            let sensHtml = '<table class="rank-table" style="font-size:0.8125rem;">' +
+                `<thead><tr><th>Treatment</th><th>${sanitize(metric)}</th><th>95% CI</th></tr></thead><tbody>`;
+            sensVs.forEach(p => { sensHtml += buildROBRow(p); });
             sensHtml += '</tbody></table>';
             document.getElementById('rob-low-studies').innerHTML = sensHtml;
-            const allTs = [...new Set([...mainVs.map(p => p.t1), ...sensVs.map(p => p.t1)])].sort(), mainLookup = {}, sensLookup = {}, nullVal = isRatio ? 1 : 0;
+
+            // Build comparison plot
+            const allTs = [...new Set([...mainVs.map(p => p.t1), ...sensVs.map(p => p.t1)])].sort();
+            const mainLookup = {};
+            const sensLookup = {};
             mainVs.forEach(p => mainLookup[p.t1] = p);
             sensVs.forEach(p => sensLookup[p.t1] = p);
+
+            // Reference line trace
+            const refLineTrace = {
+                x: [nullVal, nullVal],
+                y: [-0.5, allTs.length - 0.5],
+                mode: 'lines',
+                line: { color: '#1e2836', dash: 'dash' },
+                showlegend: false
+            };
+
+            // All studies trace
+            const allStudiesTrace = {
+                x: allTs.map(t => mainLookup[t]?.d || null),
+                y: allTs.map((_, i) => i - 0.12),
+                error_x: {
+                    type: 'data',
+                    symmetric: false,
+                    array: allTs.map(t => mainLookup[t] ? mainLookup[t].dH - mainLookup[t].d : 0),
+                    arrayminus: allTs.map(t => mainLookup[t] ? mainLookup[t].d - mainLookup[t].dL : 0),
+                    color: '#3b82f6',
+                    thickness: 2,
+                    width: 0
+                },
+                mode: 'markers',
+                marker: { symbol: 'diamond', size: 10, color: '#3b82f6' },
+                name: 'All Studies'
+            };
+
+            // Low ROB trace
+            const lowROBTrace = {
+                x: allTs.map(t => sensLookup[t]?.d || null),
+                y: allTs.map((_, i) => i + 0.12),
+                error_x: {
+                    type: 'data',
+                    symmetric: false,
+                    array: allTs.map(t => sensLookup[t] ? sensLookup[t].dH - sensLookup[t].d : 0),
+                    arrayminus: allTs.map(t => sensLookup[t] ? sensLookup[t].d - sensLookup[t].dL : 0),
+                    color: '#8b5cf6',
+                    thickness: 2,
+                    width: 0
+                },
+                mode: 'markers',
+                marker: { symbol: 'circle', size: 10, color: '#8b5cf6' },
+                name: 'Low ROB Only'
+            };
+
             Plotly.purge('plt-rob');
-            Plotly.newPlot('plt-rob', [{ x: [nullVal, nullVal], y: [-0.5, allTs.length - 0.5], mode: 'lines', line: { color: '#1e2836', dash: 'dash' }, showlegend: false }, { x: allTs.map(t => mainLookup[t]?.d || null), y: allTs.map((_, i) => i - 0.12), error_x: { type: 'data', symmetric: false, array: allTs.map(t => mainLookup[t] ? mainLookup[t].dH - mainLookup[t].d : 0), arrayminus: allTs.map(t => mainLookup[t] ? mainLookup[t].d - mainLookup[t].dL : 0), color: '#3b82f6', thickness: 2, width: 0 }, mode: 'markers', marker: { symbol: 'diamond', size: 10, color: '#3b82f6' }, name: 'All Studies' }, { x: allTs.map(t => sensLookup[t]?.d || null), y: allTs.map((_, i) => i + 0.12), error_x: { type: 'data', symmetric: false, array: allTs.map(t => sensLookup[t] ? sensLookup[t].dH - sensLookup[t].d : 0), arrayminus: allTs.map(t => sensLookup[t] ? sensLookup[t].d - sensLookup[t].dL : 0), color: '#8b5cf6', thickness: 2, width: 0 }, mode: 'markers', marker: { symbol: 'circle', size: 10, color: '#8b5cf6' }, name: 'Low ROB Only' }], { paper_bgcolor: '#0a0f14', plot_bgcolor: '#0a0f14', margin: { l: 140, r: 20, t: 20, b: 40 }, xaxis: { title: metric, type: isRatio ? 'log' : 'linear', color: '#64748b', gridcolor: '#1e2836' }, yaxis: { tickmode: 'array', tickvals: allTs.map((_, i) => i), ticktext: allTs, color: '#f0f4f8' }, font: { family: 'Inter', color: '#f0f4f8' }, showlegend: true, legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(0,0,0,0.5)' } }, { displayModeBar: false, responsive: true });
-        } else { document.getElementById('rob-low-studies').innerHTML = '<div class="empty-state">Insufficient low ROB studies.</div>'; Plotly.purge('plt-rob'); }
+            Plotly.newPlot('plt-rob', [refLineTrace, allStudiesTrace, lowROBTrace], {
+                paper_bgcolor: '#0a0f14',
+                plot_bgcolor: '#0a0f14',
+                margin: { l: 140, r: 20, t: 20, b: 40 },
+                xaxis: {
+                    title: metric,
+                    type: isRatio ? 'log' : 'linear',
+                    color: '#64748b',
+                    gridcolor: '#1e2836'
+                },
+                yaxis: {
+                    tickmode: 'array',
+                    tickvals: allTs.map((_, i) => i),
+                    ticktext: allTs,
+                    color: '#f0f4f8'
+                },
+                font: { family: 'Inter', color: '#f0f4f8' },
+                showlegend: true,
+                legend: { x: 0.02, y: 0.98, bgcolor: 'rgba(0,0,0,0.5)' }
+            }, { displayModeBar: false, responsive: true });
+        } else {
+            document.getElementById('rob-low-studies').innerHTML =
+                '<div class="empty-state">Insufficient low ROB studies.</div>';
+            Plotly.purge('plt-rob');
+        }
     },
     
     drawAdvanced() {
@@ -2954,10 +3272,10 @@ const app = {
         const isRatio = ['OR', 'RR'].includes(metric);
         
         // τ² with Q-profile CI
-        document.getElementById('adv-tau2').textContent = r.tau2.toFixed(4);
+        document.getElementById('adv-tau2').textContent = r.tau2.toFixed(FORMAT.TAU);
         if (r.tau2CI) {
-            document.getElementById('adv-tau2-lo').textContent = r.tau2CI.lower.toFixed(4);
-            document.getElementById('adv-tau2-hi').textContent = r.tau2CI.upper === Infinity ? '∞' : r.tau2CI.upper.toFixed(4);
+            document.getElementById('adv-tau2-lo').textContent = r.tau2CI.lower.toFixed(FORMAT.TAU);
+            document.getElementById('adv-tau2-hi').textContent = r.tau2CI.upper === Infinity ? '∞' : r.tau2CI.upper.toFixed(FORMAT.TAU);
         }
         
         // Threshold Robustness
@@ -2976,12 +3294,12 @@ const app = {
             
             relevantKeys.forEach(key => {
                 const di = r.contributionMatrix.directIndirect[key];
-                const directPct = di.direct.toFixed(1);
-                const indirectPct = di.indirect.toFixed(1);
+                const directPct = di.direct.toFixed(FORMAT.PERCENT);
+                const indirectPct = di.indirect.toFixed(FORMAT.PERCENT);
                 const barWidth = di.ratio * 100;
                 
                 html += `<tr>
-                    <td class="fw-500">${key.replace('|', ' vs ')}</td>
+                    <td class="fw-500">${sanitize(key.replace('|', ' vs '))}</td>
                     <td class="mono text-success">${directPct}%</td>
                     <td class="mono text-muted">${indirectPct}%</td>
                     <td><div class="progress-bar"><div class="progress-bar-fill" style="width:${barWidth}%"></div></div></td>
@@ -3016,8 +3334,8 @@ const app = {
                 };
                 
                 html += `<tr>
-                    <td class="fw-500">${key.replace('|', ' vs ')}</td>
-                    <td class="text-${confColor} fw-600">${rating.confidence.toUpperCase()}</td>
+                    <td class="fw-500">${sanitize(key.replace('|', ' vs '))}</td>
+                    <td class="text-${confColor} fw-600">${sanitize(rating.confidence.toUpperCase())}</td>
                     <td>${domainBadge(rating.domains.imprecision)}</td>
                     <td>${domainBadge(rating.domains.heterogeneity)}</td>
                     <td>${domainBadge(rating.domains.incoherence)}</td>
@@ -3072,7 +3390,11 @@ const app = {
             if (r.funnelData.eggerTest) {
                 const eg = r.funnelData.eggerTest;
                 const alertClass = eg.significant ? 'alert-warning' : 'alert-success';
-                document.getElementById('adv-egger').innerHTML = `<div class="alert ${alertClass}" style="font-size:0.75rem;"><strong>Egger's Test:</strong> Intercept = ${eg.intercept.toFixed(3)}, p = ${eg.p < 0.001 ? '<0.001' : eg.p.toFixed(3)} ${eg.significant ? '(Asymmetry detected)' : '(No asymmetry)'}</div>`;
+                const pDisplay = eg.p < 0.001 ? '<0.001' : eg.p.toFixed(FORMAT.PVALUE);
+                document.getElementById('adv-egger').innerHTML =
+                    `<div class="alert ${alertClass}" style="font-size:0.75rem;">` +
+                    `<strong>Egger's Test:</strong> Intercept = ${eg.intercept.toFixed(FORMAT.PVALUE)}, ` +
+                    `p = ${pDisplay} ${eg.significant ? '(Asymmetry detected)' : '(No asymmetry)'}</div>`;
             }
         } else {
             Plotly.purge('plt-funnel-adjusted');
@@ -3089,10 +3411,10 @@ const app = {
                 const diff = Math.abs(pScore - sucra);
                 
                 html += `<tr>
-                    <td class="fw-500">${t}</td>
-                    <td class="mono">${(pScore * 100).toFixed(1)}%</td>
-                    <td class="mono">${(sucra * 100).toFixed(1)}%</td>
-                    <td class="mono ${diff < 0.05 ? 'text-success' : 'text-warning'}">${(diff * 100).toFixed(1)}%</td>
+                    <td class="fw-500">${sanitize(t)}</td>
+                    <td class="mono">${(pScore * 100).toFixed(FORMAT.PERCENT)}%</td>
+                    <td class="mono">${(sucra * 100).toFixed(FORMAT.PERCENT)}%</td>
+                    <td class="mono ${diff < 0.05 ? 'text-success' : 'text-warning'}">${(diff * 100).toFixed(FORMAT.PERCENT)}%</td>
                 </tr>`;
             });
             
@@ -3108,11 +3430,11 @@ const app = {
             let html = '<table class="rank-table" style="font-size:0.75rem;"><thead><tr><th>Comparison</th><th>Estimate</th><th>Min Threshold</th><th>Robust?</th></tr></thead><tbody>';
             
             r.thresholdAnalysis.comparisons.slice(0, 10).forEach(comp => {
-                const est = isRatio ? Math.exp(comp.estimate).toFixed(3) : comp.estimate.toFixed(3);
-                const threshold = comp.minThreshold === Infinity ? '∞' : comp.minThreshold.toFixed(2);
+                const est = isRatio ? Math.exp(comp.estimate).toFixed(FORMAT.PVALUE) : comp.estimate.toFixed(FORMAT.PVALUE);
+                const threshold = comp.minThreshold === Infinity ? '∞' : comp.minThreshold.toFixed(FORMAT.EFFECT);
                 
                 html += `<tr>
-                    <td class="fw-500">${comp.t1} vs ${comp.t2}</td>
+                    <td class="fw-500">${sanitize(comp.t1)} vs ${sanitize(comp.t2)}</td>
                     <td class="mono">${est}</td>
                     <td class="mono">${threshold}</td>
                     <td class="${comp.isRobust ? 'text-success' : 'text-warning'}">${comp.isRobust ? '✓' : '⚠️'}</td>
@@ -3135,9 +3457,9 @@ const app = {
                                 s.importance > 0.5 ? 'var(--warning)' : 'var(--accent-blue)';
                 
                 html += `<tr>
-                    <td class="fw-500">${s.study}</td>
-                    <td class="text-muted">${s.t1} vs ${s.t2}</td>
-                    <td class="mono ${s.critical ? 'text-error' : ''}">${(s.importance * 100).toFixed(1)}%${s.critical ? ' (critical)' : ''}</td>
+                    <td class="fw-500">${sanitize(s.study)}</td>
+                    <td class="text-muted">${sanitize(s.t1)} vs ${sanitize(s.t2)}</td>
+                    <td class="mono ${s.critical ? 'text-error' : ''}">${(s.importance * 100).toFixed(FORMAT.PERCENT)}%${s.critical ? ' (critical)' : ''}</td>
                     <td><div class="progress-bar"><div style="height:100%;width:${barWidth}%;background:${barColor};border-radius:4px;"></div></div></td>
                 </tr>`;
             });
