@@ -26,7 +26,7 @@
     .validation-stat-label { font-size: 0.75rem; color: var(--text-tertiary); text-transform: uppercase; }
 </style>
 
-</head> <body> <header class="header"> <div class="header-inner"> <div class="brand"> <div class="logo">NMA</div> <div class="brand-text"> <h1>NMA Ultimate v5.2</h1> <span>Frequentist Network Meta-Analysis • Validated</span> </div> </div> <div class="controls"> <button class="btn" onclick="app.toggleModal()"> <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> Methods </button> <div class="control-group"> <label>τ² Method</label> <select id="sel-tau" onchange="app.calculate()"> <option value="reml">REML</option> <option value="dl">DL-NMA</option> <option value="pm">Paule-Mandel</option> </select> </div> <div class="control-group"> <label>CI Method</label> <select id="sel-ci" onchange="app.calculate()"> <option value="z">Wald (z)</option> <option value="hksj">HKSJ (t)</option> </select> </div> <div class="control-group"> <label>Metric</label> <select id="sel-metric" onchange="app.calculate()"> <option value="OR">OR</option> <option value="RR">RR</option> <option value="MD">MD</option> <option value="SMD">SMD</option> </select> </div> <div class="control-group"> <label>Reference</label> <select id="sel-ref" onchange="app.calculate()"></select> </div> <div class="control-group"> <label>Small=Better</label> <input type="checkbox" id="chk-small" onchange="app.calculate()"> </div> </div> </div> </header> <nav class="nav"> <div class="tabs"> <button class="tab active" onclick="app.switchView('data')">Data</button> <button class="tab" onclick="app.switchView('network')">Network</button> <button class="tab" onclick="app.switchView('results')">Results</button> <button class="tab" onclick="app.switchView('league')">League</button> <button class="tab" onclick="app.switchView('ranking')">Ranking</button> <button class="tab" onclick="app.switchView('forest')">Forest</button> <button class="tab" onclick="app.switchView('consist')">Consistency</button> <button class="tab" onclick="app.switchView('rob')">ROB-NMA</button> <button class="tab" onclick="app.switchView('advanced')" style="color: var(--accent-purple);">★ Advanced</button> <button class="tab" onclick="app.switchView('valid')" style="color: var(--success);">✓ Validation</button> </div> </nav> <main class="main"> <section id="v-data" class="view active"> <div class="card"> <div class="card-header"> <span class="card-title"> <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg> Contrast-Level Data </span> <div class="card-actions"> <button class="btn" onclick="app.loadExample()">Example</button> <button class="btn" onclick="app.clearData()">Clear</button> <button class="btn" onclick="app.exportJSON()">JSON</button> <button class="btn" onclick="app.exportCSV()">CSV</button> <div class="file-input-wrapper"> <button class="btn">Import</button> <input type="file" accept=".json,.csv" onchange="app.importFile(this)"> </div> </div> </div> <div class="card-body"> <div class="alert mb-2"> <strong>Instructions:</strong> Enter contrast-level data. For OR/RR, use log-transformed effects. Multi-arm studies share the same ID. Use <code>A+B</code> for combinations. </div> <div id="data-warnings"></div> <div class="table-container"> <table class="data-table"> <thead><tr id="table-head"></tr></thead> <tbody id="table-body"></tbody> </table> </div> </div> </div> </section> <section id="v-network" class="view"> <div class="grid-2"> <div class="card"> <div class="card-header"><span class="card-title">Network Graph</span></div> <div class="card-body"><div id="plt-network" class="plot"></div></div> </div> <div class="card"> <div class="card-header"><span class="card-title">Network Summary</span></div> <div class="card-body"> <div class="grid-2 mb-3"> <div class="stat"><div class="stat-value" id="s-treatments">-</div><div class="stat-label">Treatments</div></div> <div class="stat"><div class="stat-value" id="s-studies">-</div><div class="stat-label">Studies</div></div> <div class="stat"><div class="stat-value" id="s-comparisons">-</div><div class="stat-label">Comparisons</div></div> <div class="stat"><div class="stat-value" id="s-density">-</div><div class="stat-label">Density</div></div> </div> <div id="network-info"></div> <div id="network-diagnostics"></div> </div> </div> </div> </section> <section id="v-results" class="view"> <div class="card"> <div class="card-header"> <span class="card-title">NMA Results vs Reference</span> <span class="method-badge" id="tau-method-badge"></span> </div> <div class="card-body"> <div class="alert" id="results-note"></div> <div id="convergence-info" class="mb-2"></div> <div class="grid-4 mb-3"> <div class="stat"><div class="stat-value" id="r-treatments">-</div><div class="stat-label">Treatments</div></div> <div class="stat"><div class="stat-value" id="r-contrasts">-</div><div class="stat-label">Contrasts</div></div> <div class="stat"><div class="stat-value" id="r-tau2">-</div><div class="stat-label">τ²</div></div> <div class="stat"><div class="stat-value" id="r-i2">-</div><div class="stat-label">I²</div></div> </div> <div id="results-table"></div> </div> </div> </section> <section id="v-league" class="view"> <div class="card"> <div class="card-header"> <span class="card-title">League Table</span> <button class="btn" onclick="app.copyLeagueTable()">Copy TSV</button> </div> <div class="card-body"> <div class="alert mb-2"><strong>Reading:</strong> Row vs Column. <span class="text-success">Green</span> = Row better. <span class="text-error">Red</span> = Row worse. Diagonal = P-scores.</div> <div style="overflow: auto;"><table class="league-table" id="league-table"></table></div> </div> </div> </section> <section id="v-ranking" class="view"> <div class="grid-2"> <div class="card"> <div class="card-header"><span class="card-title">P-Score Ranking</span></div> <div class="card-body"> <div class="alert mb-2" id="ranking-note"></div> <table class="rank-table" id="ranking-table"></table> </div> </div> <div class="card"> <div class="card-header"><span class="card-title">P-Score Bar Chart</span></div> <div class="card-body"><div id="plt-rank" class="plot"></div></div> </div> </div> </section> <section id="v-forest" class="view"> <div class="card"> <div class="card-header"> <span class="card-title">Forest Plot vs Reference</span> <div class="control-group"><label>Show PI</label><input type="checkbox" id="chk-pi" onchange="app.drawForest()"></div> </div> <div class="card-body"><div id="plt-forest" class="plot" style="min-height: 450px;"></div></div> </div> </section> <section id="v-consist" class="view"> <div class="grid-2"> <div class="card"> <div class="card-header"><span class="card-title">Global Consistency</span></div> <div class="card-body"> <div class="grid-3 mb-3"> <div class="stat"><div class="stat-value" id="q-total">-</div><div class="stat-label">Q Total</div></div> <div class="stat"><div class="stat-value" id="q-within">-</div><div class="stat-label">Q Within</div></div> <div class="stat"><div class="stat-value" id="q-between">-</div><div class="stat-label">Q Between</div></div> </div> <div id="q-interpretation"></div> </div> </div> <div class="card"> <div class="card-header"><span class="card-title">Node-Splitting</span></div> <div class="card-body" id="node-split-results"></div> </div> </div> </section> <section id="v-rob" class="view"> <div class="card"> <div class="card-header"><span class="card-title">Risk of Bias Sensitivity</span></div> <div class="card-body"> <div class="alert mb-2"><strong>Sensitivity:</strong> All studies vs Low ROB only.</div> <div class="grid-3 mb-3"> <div class="stat"><div class="stat-value success" id="rob-low-count">-</div><div class="stat-label"><span class="rob-indicator rob-low"></span>Low</div></div> <div class="stat"><div class="stat-value warning" id="rob-some-count">-</div><div class="stat-label"><span class="rob-indicator rob-some"></span>Some</div></div> <div class="stat"><div class="stat-value error" id="rob-high-count">-</div><div class="stat-label"><span class="rob-indicator rob-high"></span>High</div></div> </div> <div class="grid-2 mb-3"> <div class="card mb-0"><div class="card-header"><span class="card-title text-sm">All Studies</span></div><div class="card-body" id="rob-all-studies"></div></div> <div class="card mb-0"><div class="card-header"><span class="card-title text-sm">Low ROB Only</span></div><div class="card-body" id="rob-low-studies"></div></div> </div> <div id="plt-rob" class="plot"></div> </div> </div> </section>
+</head> <body> <header class="header"> <div class="header-inner"> <div class="brand"> <div class="logo">NMA</div> <div class="brand-text"> <h1>NMA Ultimate v5.3</h1> <span>Frequentist Network Meta-Analysis • Validated</span> </div> </div> <div class="controls"> <button class="btn" onclick="app.toggleModal()"> <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg> Methods </button> <div class="control-group"> <label>τ² Method</label> <select id="sel-tau" onchange="app.calculate()"> <option value="reml">REML</option> <option value="dl">DL-NMA</option> <option value="pm">Paule-Mandel</option> </select> </div> <div class="control-group"> <label>CI Method</label> <select id="sel-ci" onchange="app.calculate()"> <option value="z">Wald (z)</option> <option value="hksj">HKSJ (t)</option> </select> </div> <div class="control-group"> <label>Metric</label> <select id="sel-metric" onchange="app.calculate()"> <option value="OR">OR</option> <option value="RR">RR</option> <option value="MD">MD</option> <option value="SMD">SMD</option> </select> </div> <div class="control-group"> <label>Reference</label> <select id="sel-ref" onchange="app.calculate()"></select> </div> <div class="control-group"> <label>Small=Better</label> <input type="checkbox" id="chk-small" onchange="app.calculate()"> </div> </div> </div> </header> <nav class="nav"> <div class="tabs"> <button class="tab active" onclick="app.switchView('data')">Data</button> <button class="tab" onclick="app.switchView('network')">Network</button> <button class="tab" onclick="app.switchView('results')">Results</button> <button class="tab" onclick="app.switchView('league')">League</button> <button class="tab" onclick="app.switchView('ranking')">Ranking</button> <button class="tab" onclick="app.switchView('forest')">Forest</button> <button class="tab" onclick="app.switchView('consist')">Consistency</button> <button class="tab" onclick="app.switchView('rob')">ROB-NMA</button> <button class="tab" onclick="app.switchView('advanced')" style="color: var(--accent-purple);">★ Advanced</button> <button class="tab" onclick="app.switchView('valid')" style="color: var(--success);">✓ Validation</button> </div> </nav> <main class="main"> <section id="v-data" class="view active"> <div class="card"> <div class="card-header"> <span class="card-title"> <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="3" y1="9" x2="21" y2="9"></line><line x1="9" y1="21" x2="9" y2="9"></line></svg> Contrast-Level Data </span> <div class="card-actions"> <button class="btn" onclick="app.loadExample()">Example</button> <button class="btn" onclick="app.clearData()">Clear</button> <button class="btn" onclick="app.exportJSON()">JSON</button> <button class="btn" onclick="app.exportCSV()">CSV</button> <div class="file-input-wrapper"> <button class="btn">Import</button> <input type="file" accept=".json,.csv" onchange="app.importFile(this)"> </div> </div> </div> <div class="card-body"> <div class="alert mb-2"> <strong>Instructions:</strong> Enter contrast-level data. For OR/RR, use log-transformed effects. Multi-arm studies share the same ID. Use <code>A+B</code> for combinations. </div> <div id="data-warnings"></div> <div class="table-container"> <table class="data-table"> <thead><tr id="table-head"></tr></thead> <tbody id="table-body"></tbody> </table> </div> </div> </div> </section> <section id="v-network" class="view"> <div class="grid-2"> <div class="card"> <div class="card-header"><span class="card-title">Network Graph</span></div> <div class="card-body"><div id="plt-network" class="plot"></div></div> </div> <div class="card"> <div class="card-header"><span class="card-title">Network Summary</span></div> <div class="card-body"> <div class="grid-2 mb-3"> <div class="stat"><div class="stat-value" id="s-treatments">-</div><div class="stat-label">Treatments</div></div> <div class="stat"><div class="stat-value" id="s-studies">-</div><div class="stat-label">Studies</div></div> <div class="stat"><div class="stat-value" id="s-comparisons">-</div><div class="stat-label">Comparisons</div></div> <div class="stat"><div class="stat-value" id="s-density">-</div><div class="stat-label">Density</div></div> </div> <div id="network-info"></div> <div id="network-diagnostics"></div> </div> </div> </div> </section> <section id="v-results" class="view"> <div class="card"> <div class="card-header"> <span class="card-title">NMA Results vs Reference</span> <span class="method-badge" id="tau-method-badge"></span> </div> <div class="card-body"> <div class="alert" id="results-note"></div> <div id="convergence-info" class="mb-2"></div> <div class="grid-4 mb-3"> <div class="stat"><div class="stat-value" id="r-treatments">-</div><div class="stat-label">Treatments</div></div> <div class="stat"><div class="stat-value" id="r-contrasts">-</div><div class="stat-label">Contrasts</div></div> <div class="stat"><div class="stat-value" id="r-tau2">-</div><div class="stat-label">τ²</div></div> <div class="stat"><div class="stat-value" id="r-i2">-</div><div class="stat-label">I²</div></div> </div> <div id="results-table"></div> </div> </div> </section> <section id="v-league" class="view"> <div class="card"> <div class="card-header"> <span class="card-title">League Table</span> <button class="btn" onclick="app.copyLeagueTable()">Copy TSV</button> </div> <div class="card-body"> <div class="alert mb-2"><strong>Reading:</strong> Row vs Column. <span class="text-success">Green</span> = Row better. <span class="text-error">Red</span> = Row worse. Diagonal = P-scores.</div> <div style="overflow: auto;"><table class="league-table" id="league-table"></table></div> </div> </div> </section> <section id="v-ranking" class="view"> <div class="grid-2"> <div class="card"> <div class="card-header"><span class="card-title">P-Score Ranking</span></div> <div class="card-body"> <div class="alert mb-2" id="ranking-note"></div> <table class="rank-table" id="ranking-table"></table> </div> </div> <div class="card"> <div class="card-header"><span class="card-title">P-Score Bar Chart</span></div> <div class="card-body"><div id="plt-rank" class="plot"></div></div> </div> </div> </section> <section id="v-forest" class="view"> <div class="card"> <div class="card-header"> <span class="card-title">Forest Plot vs Reference</span> <div class="control-group"><label>Show PI</label><input type="checkbox" id="chk-pi" onchange="app.drawForest()"></div> </div> <div class="card-body"><div id="plt-forest" class="plot" style="min-height: 450px;"></div></div> </div> </section> <section id="v-consist" class="view"> <div class="grid-2"> <div class="card"> <div class="card-header"><span class="card-title">Global Consistency</span></div> <div class="card-body"> <div class="grid-3 mb-3"> <div class="stat"><div class="stat-value" id="q-total">-</div><div class="stat-label">Q Total</div></div> <div class="stat"><div class="stat-value" id="q-within">-</div><div class="stat-label">Q Within</div></div> <div class="stat"><div class="stat-value" id="q-between">-</div><div class="stat-label">Q Between</div></div> </div> <div id="q-interpretation"></div> </div> </div> <div class="card"> <div class="card-header"><span class="card-title">Node-Splitting</span></div> <div class="card-body" id="node-split-results"></div> </div> </div> </section> <section id="v-rob" class="view"> <div class="card"> <div class="card-header"><span class="card-title">Risk of Bias Sensitivity</span></div> <div class="card-body"> <div class="alert mb-2"><strong>Sensitivity:</strong> All studies vs Low ROB only.</div> <div class="grid-3 mb-3"> <div class="stat"><div class="stat-value success" id="rob-low-count">-</div><div class="stat-label"><span class="rob-indicator rob-low"></span>Low</div></div> <div class="stat"><div class="stat-value warning" id="rob-some-count">-</div><div class="stat-label"><span class="rob-indicator rob-some"></span>Some</div></div> <div class="stat"><div class="stat-value error" id="rob-high-count">-</div><div class="stat-label"><span class="rob-indicator rob-high"></span>High</div></div> </div> <div class="grid-2 mb-3"> <div class="card mb-0"><div class="card-header"><span class="card-title text-sm">All Studies</span></div><div class="card-body" id="rob-all-studies"></div></div> <div class="card mb-0"><div class="card-header"><span class="card-title text-sm">Low ROB Only</span></div><div class="card-body" id="rob-low-studies"></div></div> </div> <div id="plt-rob" class="plot"></div> </div> </div> </section>
     <!-- NEW: Advanced NMA Features Tab -->
     <section id="v-advanced" class="view">
         <div class="card">
@@ -360,7 +360,55 @@ const TOLERANCE = {
     SVD: 1e-10,           // SVD pseudoinverse cutoff
     CONVERGENCE: 1e-6,    // Iteration convergence
     SMALL_SE: 0.001,      // Warning for very small SE
-    LARGE_ES: 5           // Warning for large effect size
+    LARGE_ES: 5,          // Warning for large effect size
+    CHOLESKY: 1e-10,      // Cholesky decomposition threshold
+    PM_STEP: 1e-8         // Paule-Mandel step size
+};
+
+// Constants for consistent number formatting
+const FORMAT = {
+    TAU: 4,        // τ² precision (e.g., 0.0123)
+    EFFECT: 2,     // Effect size precision (e.g., 1.25)
+    CI: 2,         // Confidence interval bounds (e.g., [0.85, 1.47])
+    PVALUE: 3,     // P-value precision (e.g., 0.034)
+    PERCENT: 1,    // Percentage precision (e.g., 45.2%)
+    PSCORE: 3,     // P-score precision (e.g., 0.752)
+    Q_STAT: 2      // Q statistic precision (e.g., 12.45)
+};
+
+/**
+ * Sanitizes a string for safe HTML insertion (prevents XSS)
+ * @param {string} str - The string to sanitize
+ * @returns {string} - HTML-safe string
+ */
+const sanitize = (str) => {
+    if (str === null || str === undefined) return '';
+    const div = document.createElement('div');
+    div.textContent = String(str);
+    return div.innerHTML;
+};
+
+/**
+ * Creates a debounced version of a function
+ * @param {Function} fn - The function to debounce
+ * @param {number} ms - Debounce delay in milliseconds
+ * @returns {Function} - Debounced function
+ */
+const debounce = (fn, ms) => {
+    let timeout;
+    return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => fn.apply(this, args), ms);
+    };
+};
+
+/**
+ * Logs errors to console with context (replaces silent catch blocks)
+ * @param {string} context - Description of where the error occurred
+ * @param {Error} error - The error object
+ */
+const logError = (context, error) => {
+    console.error(`[NMA Error] ${context}:`, error);
 };
 
 const Engine = {
@@ -791,16 +839,16 @@ const Engine = {
                 break;
             }
             
-            const eps = Math.max(1e-8, tau2 * 0.001);
+            const eps = Math.max(TOLERANCE.PM_STEP, tau2 * 0.001);
             const est2 = Engine.estimate(cs, ts, tau2 + eps);
             if (!est2) break;
-            
+
             const fprime = (est2.Q - est.Q) / eps;
             if (Math.abs(fprime) < TOLERANCE.SINGULAR) break;
-            
+
             const newTau2 = Math.max(0, tau2 - (est.Q - df) / fprime);
-            
-            if (Math.abs(newTau2 - tau2) < 1e-8) {
+
+            if (Math.abs(newTau2 - tau2) < TOLERANCE.PM_STEP) {
                 tau2 = newTau2;
                 converged = true;
                 break;
@@ -1829,9 +1877,9 @@ const Engine = {
                 }
                 if (i === j) {
                     // Diagonal: handle near-zero or negative (numerical issues)
-                    L[i][j] = sum > 1e-10 ? Math.sqrt(sum) : 1e-10;
+                    L[i][j] = sum > TOLERANCE.CHOLESKY ? Math.sqrt(sum) : TOLERANCE.CHOLESKY;
                 } else {
-                    L[i][j] = L[j][j] > 1e-10 ? sum / L[j][j] : 0;
+                    L[i][j] = L[j][j] > TOLERANCE.CHOLESKY ? sum / L[j][j] : 0;
                 }
             }
         }
@@ -2290,7 +2338,9 @@ const app = {
                     loaded = true;
                 }
             }
-        } catch (e) {}
+        } catch (e) {
+            logError('Loading data from localStorage', e);
+        }
         
         if (!loaded) { this.loadExample(); return; }
         
@@ -2330,11 +2380,19 @@ const app = {
     setupEventListeners() {
         if (this.eventListenersSetup) return;
         this.eventListenersSetup = true;
-        document.querySelector('.table-container').addEventListener('input', () => {
+
+        // Input handler for data table
+        this.inputHandler = () => {
             clearTimeout(this.saveTimeout);
             this.saveTimeout = setTimeout(() => { this.save(); this.calculate(); }, 400);
-        });
-        window.addEventListener('resize', () => { if (this.results) this.draw(); });
+        };
+        document.querySelector('.table-container').addEventListener('input', this.inputHandler);
+
+        // Debounced resize handler (250ms delay)
+        this.resizeHandler = debounce(() => {
+            if (this.results) this.draw();
+        }, 250);
+        window.addEventListener('resize', this.resizeHandler);
     },
     
     clearData() { if (confirm('Clear all data?')) { this.data = []; this.save(); this.render(); this.calculate(); } },
@@ -2350,7 +2408,13 @@ const app = {
         this.saveToStorage();
     },
     
-    saveToStorage() { try { localStorage.setItem('nma52', JSON.stringify({ data: this.data, config: this.config })); } catch (e) {} },
+    saveToStorage() {
+        try {
+            localStorage.setItem('nma52', JSON.stringify({ data: this.data, config: this.config }));
+        } catch (e) {
+            logError('Saving data to localStorage', e);
+        }
+    },
     
     exportJSON() {
         const blob = new Blob([JSON.stringify({ data: this.data, config: this.config }, null, 2)], { type: 'application/json' });
@@ -2417,32 +2481,89 @@ const app = {
     },
     
     render() {
-        document.getElementById('table-head').innerHTML = '<th>Study</th><th>Treatment 1</th><th>Treatment 2</th><th>log(ES)</th><th>SE</th><th>Year</th><th>ROB</th><th></th>';
+        // Table header with accessibility attributes
+        document.getElementById('table-head').innerHTML = `
+            <th scope="col">Study</th>
+            <th scope="col">Treatment 1</th>
+            <th scope="col">Treatment 2</th>
+            <th scope="col">log(ES)</th>
+            <th scope="col">SE</th>
+            <th scope="col">Year</th>
+            <th scope="col">ROB</th>
+            <th scope="col" aria-label="Actions"></th>`;
+
         const tbody = document.getElementById('table-body');
         tbody.innerHTML = '';
         this.data.forEach((row, idx) => this.addRow(tbody, row, idx));
+        // Add empty row for new entries
         this.addRow(tbody, {}, -1);
     },
-    
+
+    // Column configuration for input fields
+    inputColumns: [
+        { key: 'study', label: 'Study name', placeholder: '' },
+        { key: 't1', label: 'Treatment 1', placeholder: '' },
+        { key: 't2', label: 'Treatment 2', placeholder: '' },
+        { key: 'es', label: 'Effect size', placeholder: '0.00' },
+        { key: 'se', label: 'Standard error', placeholder: '0.10' },
+        { key: 'year', label: 'Year', placeholder: '' }
+    ],
+
     addRow(tbody, row, idx) {
         const tr = document.createElement('tr');
-        ['study', 't1', 't2', 'es', 'se', 'year'].forEach(key => {
+        const isNewRow = idx === -1;
+
+        // Add input fields for each column
+        this.inputColumns.forEach(col => {
             const td = document.createElement('td');
             const inp = document.createElement('input');
-            inp.type = 'text'; inp.value = row[key] || '';
-            inp.placeholder = key === 'es' ? '0.00' : key === 'se' ? '0.10' : '';
-            if (idx === -1) inp.onfocus = () => this.addNewRow();
-            td.appendChild(inp); tr.appendChild(td);
+            inp.type = 'text';
+            inp.value = row[col.key] || '';
+            inp.placeholder = col.placeholder;
+            inp.setAttribute('aria-label', col.label);
+
+            if (isNewRow) {
+                inp.onfocus = () => this.addNewRow();
+            }
+
+            td.appendChild(inp);
+            tr.appendChild(td);
         });
+
+        // ROB select
         const tdRob = document.createElement('td');
         const sel = document.createElement('select');
-        sel.innerHTML = '<option value="low">Low</option><option value="some">Some Concerns</option><option value="high">High</option>';
+        sel.setAttribute('aria-label', 'Risk of Bias');
+        sel.innerHTML = `
+            <option value="low">Low</option>
+            <option value="some">Some Concerns</option>
+            <option value="high">High</option>`;
         sel.value = row.rob || 'low';
-        if (idx === -1) sel.onfocus = () => this.addNewRow();
-        tdRob.appendChild(sel); tr.appendChild(tdRob);
+
+        if (isNewRow) {
+            sel.onfocus = () => this.addNewRow();
+        }
+
+        tdRob.appendChild(sel);
+        tr.appendChild(tdRob);
+
+        // Delete button
         const tdDel = document.createElement('td');
-        if (idx !== -1) { const del = document.createElement('span'); del.className = 'delete-btn'; del.textContent = '×'; del.onclick = () => this.deleteRow(idx); tdDel.appendChild(del); }
+        if (!isNewRow) {
+            const del = document.createElement('span');
+            del.className = 'delete-btn';
+            del.textContent = '×';
+            del.setAttribute('role', 'button');
+            del.setAttribute('aria-label', `Delete row ${idx + 1}`);
+            del.setAttribute('tabindex', '0');
+            del.onclick = () => this.deleteRow(idx);
+            del.onkeypress = (e) => {
+                if (e.key === 'Enter' || e.key === ' ') this.deleteRow(idx);
+            };
+            tdDel.appendChild(del);
+        }
         tr.appendChild(tdDel);
+
         tbody.appendChild(tr);
     },
     
@@ -2588,43 +2709,193 @@ const app = {
     },
     
     drawResults() {
-        const r = this.results, metric = this.config.metric, isRatio = ['OR', 'RR'].includes(metric), ref = this.config.reference || r.treatments[0];
-        document.getElementById('tau-method-badge').textContent = `${this.config.tauMethod.toUpperCase()}${r.useHKSJ ? '+HKSJ' : ''}`;
-        document.getElementById('results-note').innerHTML = `<strong>Reference:</strong> ${ref}. Values ${isRatio ? '<1' : '<0'} favour comparator.${r.useHKSJ ? '<br><small>HKSJ t-distribution CIs.</small>' : ''}`;
+        const r = this.results;
+        const metric = this.config.metric;
+        const isRatio = ['OR', 'RR'].includes(metric);
+        const ref = this.config.reference || r.treatments[0];
+        const nullVal = isRatio ? 1 : 0;
+
+        // Update header badges and notes
+        document.getElementById('tau-method-badge').textContent =
+            `${this.config.tauMethod.toUpperCase()}${r.useHKSJ ? '+HKSJ' : ''}`;
+
+        document.getElementById('results-note').innerHTML =
+            `<strong>Reference:</strong> ${sanitize(ref)}. Values ${isRatio ? '&lt;1' : '&lt;0'} favour comparator.` +
+            `${r.useHKSJ ? '<br><small>HKSJ t-distribution CIs.</small>' : ''}`;
+
+        // Convergence info
         let convHtml = '';
-        if (!r.tauConverged) convHtml = `<div class="alert alert-warning"><strong>⚠️</strong> τ² did not converge. ${r.tauMessage || ''}</div>`;
-        else if (r.tauAtBoundary) convHtml = `<div class="alert alert-success"><strong>✓</strong> ${r.tauMessage}</div>`;
+        if (!r.tauConverged) {
+            convHtml = `<div class="alert alert-warning">
+                <strong>⚠️</strong> τ² did not converge. ${sanitize(r.tauMessage || '')}
+            </div>`;
+        } else if (r.tauAtBoundary) {
+            convHtml = `<div class="alert alert-success">
+                <strong>✓</strong> ${sanitize(r.tauMessage)}
+            </div>`;
+        }
         document.getElementById('convergence-info').innerHTML = convHtml;
+
+        // Summary stats
         document.getElementById('r-treatments').textContent = r.treatments.length;
         document.getElementById('r-contrasts').textContent = r.contrasts.length;
-        document.getElementById('r-tau2').textContent = r.tau2.toFixed(4);
-        document.getElementById('r-i2').textContent = `${r.I2.toFixed(1)}%`;
-        const vsRef = r.pairwise.filter(p => p.t2 === ref && p.t1 !== ref).sort((a, b) => a.d - b.d);
-        let html = '<table class="rank-table"><thead><tr><th>Treatment</th><th>' + metric + '</th><th>95% CI</th><th>P-value</th><th>P-Score</th></tr></thead><tbody>';
-        vsRef.forEach(p => { const tidx = r.treatments.indexOf(p.t1), pScore = r.pScores[tidx], nullVal = isRatio ? 1 : 0, colorClass = p.sig ? (p.d < nullVal ? 'text-success' : 'text-error') : ''; html += `<tr><td class="fw-500">${p.t1}</td><td class="mono ${colorClass}">${p.d.toFixed(2)}</td><td class="mono text-muted">[${p.dL.toFixed(2)}, ${p.dH.toFixed(2)}]</td><td class="mono">${p.pv < 0.001 ? '<.001' : p.pv.toFixed(3)}</td><td class="mono">${pScore.toFixed(3)}</td></tr>`; });
+        document.getElementById('r-tau2').textContent = r.tau2.toFixed(FORMAT.TAU);
+        document.getElementById('r-i2').textContent = `${r.I2.toFixed(FORMAT.PERCENT)}%`;
+
+        // Results table
+        const vsRef = r.pairwise
+            .filter(p => p.t2 === ref && p.t1 !== ref)
+            .sort((a, b) => a.d - b.d);
+
+        let html = `
+            <table class="rank-table" role="table" aria-label="NMA Results">
+                <thead>
+                    <tr>
+                        <th scope="col">Treatment</th>
+                        <th scope="col">${sanitize(metric)}</th>
+                        <th scope="col">95% CI</th>
+                        <th scope="col">P-value</th>
+                        <th scope="col">P-Score</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+
+        vsRef.forEach(p => {
+            const tidx = r.treatments.indexOf(p.t1);
+            const pScore = r.pScores[tidx];
+            const colorClass = p.sig ? (p.d < nullVal ? 'text-success' : 'text-error') : '';
+            const pvalDisplay = p.pv < 0.001 ? '&lt;.001' : p.pv.toFixed(FORMAT.PVALUE);
+
+            html += `
+                <tr>
+                    <td class="fw-500">${sanitize(p.t1)}</td>
+                    <td class="mono ${colorClass}">${p.d.toFixed(FORMAT.EFFECT)}</td>
+                    <td class="mono text-muted">[${p.dL.toFixed(FORMAT.CI)}, ${p.dH.toFixed(FORMAT.CI)}]</td>
+                    <td class="mono">${pvalDisplay}</td>
+                    <td class="mono">${pScore.toFixed(FORMAT.PSCORE)}</td>
+                </tr>`;
+        });
+
         html += '</tbody></table>';
         document.getElementById('results-table').innerHTML = html;
     },
     
     drawLeague() {
-        const r = this.results, metric = this.config.metric, isRatio = ['OR', 'RR'].includes(metric), nullVal = isRatio ? 1 : 0, lookup = {};
+        const r = this.results;
+        const metric = this.config.metric;
+        const isRatio = ['OR', 'RR'].includes(metric);
+        const nullVal = isRatio ? 1 : 0;
+
+        // Build lookup for pairwise results
+        const lookup = {};
         r.pairwise.forEach(p => lookup[`${p.t1}|${p.t2}`] = p);
+
+        // Sort treatments by ranking
         const sortedTs = r.ranking.map(item => item.treatment);
-        let html = '<thead><tr><th></th>'; sortedTs.forEach(t => html += `<th>${t}</th>`); html += '</tr></thead><tbody>';
-        sortedTs.forEach(t1 => { html += `<tr><th>${t1}</th>`; sortedTs.forEach(t2 => { if (t1 === t2) html += `<td class="diagonal">${r.pScores[r.treatments.indexOf(t1)].toFixed(2)}</td>`; else { const p = lookup[`${t1}|${t2}`]; if (p) { const sigClass = p.sig ? (p.d < nullVal ? 'sig-positive' : 'sig-negative') : ''; html += `<td class="${sigClass}">${p.d.toFixed(2)}<br><span style="font-size:0.6rem;opacity:0.7">[${p.dL.toFixed(2)}, ${p.dH.toFixed(2)}]</span></td>`; } else html += '<td>-</td>'; } }); html += '</tr>'; });
+
+        // Build header row
+        let html = `
+            <thead>
+                <tr>
+                    <th scope="col"></th>
+                    ${sortedTs.map(t => `<th scope="col">${sanitize(t)}</th>`).join('')}
+                </tr>
+            </thead>
+            <tbody>`;
+
+        // Build data rows
+        sortedTs.forEach(t1 => {
+            html += `<tr><th scope="row">${sanitize(t1)}</th>`;
+
+            sortedTs.forEach(t2 => {
+                if (t1 === t2) {
+                    // Diagonal: show P-score
+                    const pScore = r.pScores[r.treatments.indexOf(t1)];
+                    html += `<td class="diagonal">${pScore.toFixed(FORMAT.EFFECT)}</td>`;
+                } else {
+                    const p = lookup[`${t1}|${t2}`];
+                    if (p) {
+                        const sigClass = p.sig
+                            ? (p.d < nullVal ? 'sig-positive' : 'sig-negative')
+                            : '';
+                        html += `
+                            <td class="${sigClass}">
+                                ${p.d.toFixed(FORMAT.EFFECT)}<br>
+                                <span style="font-size:0.6rem;opacity:0.7">
+                                    [${p.dL.toFixed(FORMAT.CI)}, ${p.dH.toFixed(FORMAT.CI)}]
+                                </span>
+                            </td>`;
+                    } else {
+                        html += '<td>-</td>';
+                    }
+                }
+            });
+
+            html += '</tr>';
+        });
+
         html += '</tbody>';
         document.getElementById('league-table').innerHTML = html;
     },
     
     drawRanking() {
         const r = this.results;
-        document.getElementById('ranking-note').innerHTML = `<strong>Direction:</strong> ${this.config.smallBetter ? 'Lower=better' : 'Higher=better'}. P-Score 1=best, 0=worst.`;
-        let html = '<thead><tr><th>Rank</th><th>Treatment</th><th>P-Score</th><th></th></tr></thead><tbody>';
-        r.ranking.forEach((item, i) => { html += `<tr><td class="rank-number">${i + 1}</td><td class="rank-name">${item.treatment}</td><td class="rank-score">${item.pScore.toFixed(3)}</td><td><div class="progress-bar"><div class="progress-bar-fill" style="width:${item.pScore * 100}%"></div></div></td></tr>`; });
+
+        // Direction note
+        document.getElementById('ranking-note').innerHTML =
+            `<strong>Direction:</strong> ${this.config.smallBetter ? 'Lower=better' : 'Higher=better'}. P-Score 1=best, 0=worst.`;
+
+        // Build ranking table
+        let html = `
+            <thead>
+                <tr>
+                    <th scope="col">Rank</th>
+                    <th scope="col">Treatment</th>
+                    <th scope="col">P-Score</th>
+                    <th scope="col" aria-label="Progress"></th>
+                </tr>
+            </thead>
+            <tbody>`;
+
+        r.ranking.forEach((item, i) => {
+            const progressWidth = (item.pScore * 100).toFixed(FORMAT.PERCENT);
+            html += `
+                <tr>
+                    <td class="rank-number">${i + 1}</td>
+                    <td class="rank-name">${sanitize(item.treatment)}</td>
+                    <td class="rank-score">${item.pScore.toFixed(FORMAT.PSCORE)}</td>
+                    <td>
+                        <div class="progress-bar" role="progressbar" aria-valuenow="${progressWidth}" aria-valuemin="0" aria-valuemax="100">
+                            <div class="progress-bar-fill" style="width:${progressWidth}%"></div>
+                        </div>
+                    </td>
+                </tr>`;
+        });
+
         html += '</tbody>';
         document.getElementById('ranking-table').innerHTML = html;
+
+        // Draw bar chart
         Plotly.purge('plt-rank');
-        Plotly.newPlot('plt-rank', [{ x: r.ranking.map(i => i.treatment), y: r.ranking.map(i => i.pScore), type: 'bar', marker: { color: r.ranking.map((_, i) => `rgba(59,130,246,${1 - i * 0.08})`), line: { color: '#3b82f6', width: 1 } }, text: r.ranking.map(i => i.pScore.toFixed(2)), textposition: 'outside', textfont: { color: '#f0f4f8', size: 10 } }], { paper_bgcolor: '#0a0f14', plot_bgcolor: '#0a0f14', margin: { l: 40, r: 20, t: 20, b: 100 }, xaxis: { tickangle: -45, color: '#64748b', gridcolor: '#1e2836' }, yaxis: { title: 'P-Score', range: [0, 1.15], color: '#64748b', gridcolor: '#1e2836' }, font: { family: 'Inter', color: '#f0f4f8' } }, { displayModeBar: false, responsive: true });
+        Plotly.newPlot('plt-rank', [{
+            x: r.ranking.map(i => i.treatment),
+            y: r.ranking.map(i => i.pScore),
+            type: 'bar',
+            marker: {
+                color: r.ranking.map((_, i) => `rgba(59,130,246,${1 - i * 0.08})`),
+                line: { color: '#3b82f6', width: 1 }
+            },
+            text: r.ranking.map(i => i.pScore.toFixed(FORMAT.EFFECT)),
+            textposition: 'outside',
+            textfont: { color: '#f0f4f8', size: 10 }
+        }], {
+            paper_bgcolor: '#0a0f14',
+            plot_bgcolor: '#0a0f14',
+            margin: { l: 40, r: 20, t: 20, b: 100 },
+            xaxis: { tickangle: -45, color: '#64748b', gridcolor: '#1e2836' },
+            yaxis: { title: 'P-Score', range: [0, 1.15], color: '#64748b', gridcolor: '#1e2836' },
+            font: { family: 'Inter', color: '#f0f4f8' }
+        }, { displayModeBar: false, responsive: true });
     },
     
     drawForest() {
@@ -2911,11 +3182,37 @@ const app = {
         `).join('');
     },
     
+    // Mapping of view IDs to tab text for robust tab switching
+    viewTabMap: {
+        'data': 'Data',
+        'network': 'Network',
+        'results': 'Results',
+        'league': 'League',
+        'ranking': 'Ranking',
+        'forest': 'Forest',
+        'consist': 'Consistency',
+        'rob': 'ROB-NMA',
+        'advanced': '★ Advanced',
+        'valid': '✓ Validation'
+    },
+
     switchView(view) {
+        // Update view visibility
         document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-        document.getElementById('v-' + view).classList.add('active');
-        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.tab').forEach(t => { if (t.textContent.toLowerCase().includes(view.substring(0, 4))) t.classList.add('active'); });
+        const targetView = document.getElementById('v-' + view);
+        if (targetView) {
+            targetView.classList.add('active');
+        }
+
+        // Update tab active state using the view-tab mapping
+        const tabText = this.viewTabMap[view];
+        document.querySelectorAll('.tab').forEach(t => {
+            t.classList.remove('active');
+            if (tabText && t.textContent.trim() === tabText) {
+                t.classList.add('active');
+            }
+        });
+
         setTimeout(() => this.draw(), 50);
     },
     
@@ -2930,11 +3227,72 @@ const app = {
     },
     
     copyLeagueTable() {
-        const r = this.results; if (!r) return;
-        const lookup = {}; r.pairwise.forEach(p => lookup[`${p.t1}|${p.t2}`] = p);
+        const r = this.results;
+        if (!r) return;
+
+        const lookup = {};
+        r.pairwise.forEach(p => lookup[`${p.t1}|${p.t2}`] = p);
+
         let tsv = '\t' + r.treatments.join('\t') + '\n';
-        r.treatments.forEach(t1 => { tsv += t1; r.treatments.forEach(t2 => { if (t1 === t2) tsv += '\t—'; else { const p = lookup[`${t1}|${t2}`]; tsv += '\t' + (p ? `${p.d.toFixed(2)} [${p.dL.toFixed(2)}, ${p.dH.toFixed(2)}]` : '-'); } }); tsv += '\n'; });
+        r.treatments.forEach(t1 => {
+            tsv += t1;
+            r.treatments.forEach(t2 => {
+                if (t1 === t2) {
+                    tsv += '\t—';
+                } else {
+                    const p = lookup[`${t1}|${t2}`];
+                    tsv += '\t' + (p
+                        ? `${p.d.toFixed(FORMAT.EFFECT)} [${p.dL.toFixed(FORMAT.CI)}, ${p.dH.toFixed(FORMAT.CI)}]`
+                        : '-');
+                }
+            });
+            tsv += '\n';
+        });
+
         navigator.clipboard.writeText(tsv).then(() => this.showToast('Copied to clipboard'));
+    },
+
+    /**
+     * Cleanup method to remove event listeners and clear resources
+     * Call this when destroying the app instance
+     */
+    destroy() {
+        // Remove event listeners
+        if (this.resizeHandler) {
+            window.removeEventListener('resize', this.resizeHandler);
+        }
+        if (this.inputHandler) {
+            const tableContainer = document.querySelector('.table-container');
+            if (tableContainer) {
+                tableContainer.removeEventListener('input', this.inputHandler);
+            }
+        }
+
+        // Clear timeouts
+        clearTimeout(this.saveTimeout);
+
+        // Purge Plotly instances to free memory
+        const plotIds = [
+            'plt-network',
+            'plt-rank',
+            'plt-forest',
+            'plt-rob',
+            'plt-funnel-adjusted'
+        ];
+        plotIds.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) {
+                try {
+                    Plotly.purge(id);
+                } catch (e) {
+                    logError(`Purging Plotly instance ${id}`, e);
+                }
+            }
+        });
+
+        // Reset state
+        this.eventListenersSetup = false;
+        this.results = null;
     }
 };
 
