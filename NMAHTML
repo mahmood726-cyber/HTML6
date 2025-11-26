@@ -327,7 +327,7 @@
             
             <h4>Ranking Methods</h4>
             <p><strong>P-Scores:</strong> Rücker & Schwarzer (2015). Frequentist ranking using probability of superiority. Range 0-1 where 1=best.</p>
-            <p><strong>SUCRA:</strong> Surface Under Cumulative Ranking. Computed via multivariate normal simulation (2000 iterations) with proper covariance structure via Cholesky decomposition. Should agree closely with P-scores.</p>
+            <p><strong>SUCRA:</strong> Surface Under Cumulative Ranking. Computed via multivariate normal simulation (10,000 iterations) with proper covariance structure via Cholesky decomposition. Should agree closely with P-scores.</p>
             
             <h4>Advanced Features (★ Tab)</h4>
             <p><strong>Contribution Matrix:</strong> Hat matrix-based approximation showing % direct vs indirect evidence for each NMA estimate (Papakonstantinou 2018). Note: Full path decomposition method may give slightly different values.</p>
@@ -339,11 +339,27 @@
             <h4>Network Diagnostics</h4>
             <p>Reports density, identifies articulation points (critical treatments whose removal disconnects network).</p>
             
+            <h4>Methodological Assumptions</h4>
+            <p><strong>Model:</strong> Frequentist contrast-based random-effects NMA with inverse-variance weighting.</p>
+            <p><strong>Multi-arm studies:</strong> Correlations between contrasts from the same study are not modeled. For studies with 3+ arms, SEs may be underestimated. The system detects and warns about multi-arm studies.</p>
+            <p><strong>Transitivity:</strong> Assumed but not testable within this framework. Users must verify clinical/methodological similarity.</p>
+
+            <h4>Configurable Thresholds</h4>
+            <p>Statistical thresholds can be modified in the THRESHOLDS constant:</p>
+            <ul style="font-size:0.75rem; margin:0.5rem 0;">
+                <li><strong>INCONSISTENCY:</strong> 0.10 (global Q-test, conventional for low-power test)</li>
+                <li><strong>NODE_SPLIT:</strong> 0.05 (local node-splitting, more conservative)</li>
+                <li><strong>SMALL_NETWORK:</strong> 4 treatments (warns below this)</li>
+                <li><strong>MIN_DF_HKSJ:</strong> 2 (warns when HKSJ df is too small)</li>
+            </ul>
+
             <div class="warning-box">
                 <strong>⚠️ Implementation Notes:</strong><br>
                 • Contribution matrix uses hat matrix approximation, not full path decomposition<br>
                 • Threshold analysis uses first-order linear approximation<br>
                 • CINeMA ratings are semi-automatic; within-study bias requires ROB input<br>
+                • Multi-arm study correlations not modeled (warning displayed when detected)<br>
+                • Egger's test includes per-comparison analysis to detect localized bias<br>
                 • For publication-quality analyses, validate critical results against R packages (netmeta, nmathresh, CINeMA)
             </div>
         </div>
@@ -363,6 +379,15 @@ const TOLERANCE = {
     LARGE_ES: 5,          // Warning for large effect size
     CHOLESKY: 1e-10,      // Cholesky decomposition threshold
     PM_STEP: 1e-8         // Paule-Mandel step size
+};
+
+// Statistical thresholds (configurable)
+const THRESHOLDS = {
+    INCONSISTENCY: 0.10,      // α for global inconsistency test (conventional: 0.10)
+    NODE_SPLIT: 0.05,         // α for node-splitting (more conservative: 0.05)
+    SIGNIFICANCE: 0.05,       // α for treatment effect significance
+    SMALL_NETWORK: 4,         // Minimum treatments for reliable inference
+    MIN_DF_HKSJ: 2            // Minimum df for HKSJ adjustment
 };
 
 // Constants for consistent number formatting
@@ -664,10 +689,46 @@ const Engine = {
     
     // ========== NMA Core Functions ==========
     
+    // Detect multi-arm studies and compute expected correlations
+    detectMultiArmStudies: (cs) => {
+        const studyMap = {};
+        cs.forEach(c => {
+            if (!studyMap[c.study]) studyMap[c.study] = new Set();
+            studyMap[c.study].add(c.t1);
+            studyMap[c.study].add(c.t2);
+        });
+
+        const multiArmStudies = [];
+        Object.entries(studyMap).forEach(([study, treatments]) => {
+            const nArms = treatments.length;
+            if (nArms >= 3) {
+                // Count contrasts from this study
+                const studyContrasts = cs.filter(c => c.study === study);
+                const expectedContrasts = nArms * (nArms - 1) / 2;
+                multiArmStudies.push({
+                    study,
+                    nArms,
+                    treatments: Array.from(treatments),
+                    nContrasts: studyContrasts.length,
+                    expectedContrasts,
+                    // For 3+ arm studies, correlation between contrasts sharing an arm is ~0.5
+                    // (depends on sample sizes, but 0.5 is a reasonable approximation)
+                    expectedCorrelation: 0.5
+                });
+            }
+        });
+
+        return {
+            hasMultiArm: multiArmStudies.length > 0,
+            studies: multiArmStudies,
+            totalMultiArmContrasts: multiArmStudies.reduce((sum, s) => sum + s.nContrasts, 0)
+        };
+    },
+
     validateContrasts: (cs) => {
         const errors = [];
         const warnings = [];
-        
+
         cs.forEach((c, i) => {
             const row = i + 1;
             if (isNaN(c.es) || !isFinite(c.es)) errors.push(`Row ${row}: Invalid effect size`);
@@ -677,8 +738,15 @@ const Engine = {
             if (c.se < TOLERANCE.SMALL_SE) warnings.push(`Row ${row}: Very small SE (${c.se.toFixed(4)})`);
             if (Math.abs(c.es) > TOLERANCE.LARGE_ES) warnings.push(`Row ${row}: Large ES (${c.es.toFixed(2)})`);
         });
-        
-        return { errors, warnings, valid: errors.length === 0 };
+
+        // Check for multi-arm studies
+        const multiArm = Engine.detectMultiArmStudies(cs);
+        if (multiArm.hasMultiArm) {
+            const studyList = multiArm.studies.map(s => `${s.study} (${s.nArms} arms)`).join(', ');
+            warnings.push(`Multi-arm studies detected: ${studyList}. Correlations between contrasts not modeled - SEs may be underestimated.`);
+        }
+
+        return { errors, warnings, valid: errors.length === 0, multiArm };
     },
     
     buildB: (cs, ts) => {
@@ -1032,13 +1100,17 @@ const Engine = {
         const dfWarning = dfBetween < 0;
         const safeDfBetween = Math.max(0, dfBetween);
         
+        const pBetween = safeDfBetween > 0 ? 1 - Engine.pchisq(Math.max(0, Qbetween), safeDfBetween) : 1;
+
         return {
             Qtotal, dfTotal, pTotal: dfTotal > 0 ? 1 - Engine.pchisq(Qtotal, dfTotal) : 1,
             Qwithin, dfWithin, pWithin: dfWithin > 0 ? 1 - Engine.pchisq(Qwithin, dfWithin) : 1,
             Qbetween: Math.max(0, Qbetween), dfBetween: safeDfBetween,
-            pBetween: safeDfBetween > 0 ? 1 - Engine.pchisq(Math.max(0, Qbetween), safeDfBetween) : 1,
+            pBetween,
             nDesigns: designKeys.length,
-            inconsistent: safeDfBetween > 0 && (1 - Engine.pchisq(Math.max(0, Qbetween), safeDfBetween)) < 0.10,
+            // Uses configurable threshold (default 0.10, conventional for low-power test)
+            inconsistent: safeDfBetween > 0 && pBetween < THRESHOLDS.INCONSISTENCY,
+            threshold: THRESHOLDS.INCONSISTENCY,
             dfWarning, warningMessage: dfWarning ? 'Negative df - possible model misspecification' : null
         };
     },
@@ -1079,7 +1151,15 @@ const Engine = {
         const z = diffSE > TOLERANCE.SINGULAR ? diff / diffSE : 0;
         const pv = 2 * (1 - Engine.pnorm(Math.abs(z)));
         
-        return { t1, t2, direct: { es: directES, se: directSE, n: direct.length }, indirect: { es: indirectES, se: indirectSE }, diff, diffSE, z, pv, inconsistent: pv < 0.05 };
+        return {
+            t1, t2,
+            direct: { es: directES, se: directSE, n: direct.length },
+            indirect: { es: indirectES, se: indirectSE },
+            diff, diffSE, z, pv,
+            // Uses configurable threshold (default 0.05, more conservative than global test)
+            inconsistent: pv < THRESHOLDS.NODE_SPLIT,
+            threshold: THRESHOLDS.NODE_SPLIT
+        };
     },
     
     isConnected: (cs, ts) => {
@@ -1389,14 +1469,38 @@ const Engine = {
             };
         });
         
-        // Compute Egger's test on centered effects
+        // Compute global Egger's test on centered effects
         const eggerTest = Engine.eggerTest(points);
-        
+
+        // Compute per-comparison Egger's tests (for detecting comparison-specific bias)
+        const comparisonGroups = {};
+        points.forEach(pt => {
+            const key = pt.comparison;
+            if (!comparisonGroups[key]) comparisonGroups[key] = [];
+            comparisonGroups[key].push(pt);
+        });
+
+        const perComparisonTests = {};
+        Object.entries(comparisonGroups).forEach(([comp, pts]) => {
+            if (pts.length >= 3) {
+                perComparisonTests[comp] = Engine.eggerTest(pts);
+            }
+        });
+
+        // Check for comparison-specific asymmetry (any comparison shows significant bias)
+        const comparisonSpecificBias = Object.values(perComparisonTests)
+            .some(test => test.significant);
+
         return {
             points,
             treatmentOrder,
             eggerTest,
-            method: 'comparison-adjusted'
+            perComparisonTests,
+            comparisonSpecificBias,
+            method: 'comparison-adjusted',
+            note: comparisonSpecificBias && !eggerTest.significant
+                ? 'Global test non-significant but some comparisons show asymmetry'
+                : null
         };
     },
     
@@ -1834,9 +1938,10 @@ const Engine = {
     SUCRA: (theta, V, smallBetter) => {
         const n = theta.length;
         const pscores = Engine.pScores(theta, V, smallBetter);
-        
+
         // Compute rank probabilities via simulation with proper covariance
-        const nSim = 2000;
+        // Using 10000 simulations for stable ranking estimates (Salanti et al. 2011)
+        const nSim = 10000;
         const rankCounts = Array(n).fill(null).map(() => Array(n).fill(0));
         
         // Cholesky decomposition of V for correlated sampling
@@ -2633,23 +2738,56 @@ const app = {
         
         const validation = Engine.validateContrasts(contrasts);
         const warningsDiv = document.getElementById('data-warnings');
-        
-        if (!validation.valid) { warningsDiv.innerHTML = `<div class="alert alert-error mb-2"><strong>⚠️ Errors:</strong><br>${validation.errors.join('<br>')}</div>`; this.results = null; return; }
-        if (validation.warnings.length > 0) warningsDiv.innerHTML = `<div class="alert alert-warning mb-2"><strong>⚠️ Warnings:</strong><br>${validation.warnings.join('<br>')}</div>`;
-        else warningsDiv.innerHTML = '';
-        
+        const allWarnings = [...validation.warnings];
+
+        if (!validation.valid) {
+            warningsDiv.innerHTML = `<div class="alert alert-error mb-2"><strong>⚠️ Errors:</strong><br>${validation.errors.join('<br>')}</div>`;
+            this.results = null;
+            return;
+        }
+
         if (contrasts.length < 1 || treatments.length < 2) { this.results = null; return; }
-        
+
         const connected = Engine.isConnected(contrasts, treatments);
-        if (!connected) { this.results = null; warningsDiv.innerHTML = '<div class="alert alert-error"><strong>⚠️</strong> Network disconnected.</div>'; return; }
-        
+        if (!connected) {
+            this.results = null;
+            warningsDiv.innerHTML = '<div class="alert alert-error"><strong>⚠️</strong> Network disconnected.</div>';
+            return;
+        }
+
+        // Small network warning
+        if (treatments.length < THRESHOLDS.SMALL_NETWORK) {
+            allWarnings.push(`Small network (${treatments.length} treatments). Results may be unstable; interpret with caution.`);
+        }
+
         const tauResult = Engine.computeTau2(contrasts, treatments, this.config.tauMethod);
         const tau2 = tauResult.tau2;
+
+        // Tau² convergence and boundary warnings
+        if (!tauResult.converged) {
+            allWarnings.push(`τ² estimation did not converge (${tauResult.message}). Consider trying a different method.`);
+        }
+        if (tauResult.atBoundary && tau2 === 0) {
+            allWarnings.push('τ² estimated at boundary (=0). This may indicate homogeneity or model issues.');
+        }
+
         const nma = Engine.estimate(contrasts, treatments, tau2);
         if (!nma) { this.results = null; return; }
-        
+
         const df = contrasts.length - treatments.length + 1;
         const useHKSJ = this.config.ciMethod === 'hksj';
+
+        // HKSJ warning for very small df
+        if (useHKSJ && df < THRESHOLDS.MIN_DF_HKSJ) {
+            allWarnings.push(`HKSJ adjustment with df=${df} may be unreliable. Consider using Wald CIs.`);
+        }
+
+        // Display all warnings
+        if (allWarnings.length > 0) {
+            warningsDiv.innerHTML = `<div class="alert alert-warning mb-2"><strong>⚠️ Warnings:</strong><br>${allWarnings.map(w => sanitize(w)).join('<br>')}</div>`;
+        } else {
+            warningsDiv.innerHTML = '';
+        }
         const pairwise = Engine.pairwise(nma.theta, nma.V, treatments, this.config.metric, tau2, df, useHKSJ);
         const pScores = Engine.pScores(nma.theta, nma.V, this.config.smallBetter);
         const ranking = treatments.map((t, i) => ({ treatment: t, pScore: pScores[i] })).sort((a, b) => b.pScore - a.pScore);
